@@ -1,0 +1,4 @@
+# Depoda LF, çalışma copyasında platform varsayılanı (cross-platform: ZCode/Claude Code/Codex)
+* text=auto eol=lf
+*.png binary
+*.jpg binary

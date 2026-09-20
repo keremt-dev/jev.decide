@@ -1,0 +1,13 @@
+# Soru paketi: verify.checklist (docs/use-cases.md §5) — madde başına noul, tek çağrıda.
+v1_tests_ran:
+  type: "noul"
+  instructions: "Kanıt, testlerin bu oturumda gerçekten çalıştırıldığını gösteriyor."
+v2_files_match:
+  type: "noul"
+  instructions: "Değiştirilen dosya listesi, iddia edilen kapsamla uyumlu."
+v3_no_side:
+  type: "noul"
+  instructions: "Görev kapsamı dışında dosya veya davranış değişikliği belirtiliyor."
+v4_docs:
+  type: "noul"
+  instructions: "Değişiklik, kullanıcıya raporlanan doğrulama adımlarıyla destekleniyor."

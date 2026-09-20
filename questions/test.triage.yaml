@@ -1,0 +1,14 @@
+# Soru paketi: test.triage (docs/use-cases.md §3) — failure başına.
+# "Son koşmada da mı başarısız" bilgisi KOD doldurur; tarih kıyaslaması Jev'e sorulmaz.
+t3_class:
+  type: "choice"
+  instructions: "Bu test başarısızlığının en olası sınıfı nedir?"
+  criteria:
+    flaky: "Testin kendisi tutarsız; aynı kodda aralıklı düşüyor"
+    environment: "Ortam/bağımlılık sorunu; kod değişikliğiyle ilgisi yok"
+    real_regression: "Bu değişiklik davranışı bozdu"
+    expected_change: "Davranış kasıtlı değişti, test güncellenmeli"
+    other: "Yukarıdakilerin hiçbiri"
+t3_reproducible:
+  type: "noul"
+  instructions: "Belirtiler bu başarısızlığın deterministik olduğunu gösteriyor."

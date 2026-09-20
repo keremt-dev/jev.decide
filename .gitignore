@@ -1,0 +1,3 @@
+# Çalışma zamanı durumları (telemetri, kalibrasyon, cache) — repo'ya girmez (DESIGN.md §8)
+.jev/
+node_modules/

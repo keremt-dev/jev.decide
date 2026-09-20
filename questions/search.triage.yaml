@@ -1,0 +1,19 @@
+# Soru paketi: search.triage (docs/use-cases.md §1)
+# Kimlikler generiktir; aday başına withPrefix(pkg, "f14_") ile ör. f14_relevant üretilir.
+# Aday başına iki atomik soru — tek çağrıda fan-out.
+relevant:
+  type: "choice"
+  instructions: "Görev bu dosyanın değiştirilmesini gerektiriyor mu?"
+  criteria:
+    directly: "Dosya, görevin doğrudan değiştirdiği davranışı içeriyor"
+    likely: "Dosya, görevle ilgili davranışı çağırıyor veya yapılandırıyor"
+    other: "Yukarıdakilerin hiçbiri"
+role:
+  type: "choice"
+  instructions: "Bu dosyanın projedeki rolü nedir?"
+  criteria:
+    implementation: "İş mantığını uygular"
+    test: "Testleri içerir"
+    config: "Yapılandırma/derleme tanımıdır"
+    docs: "Belgelendirmedir"
+    other: "Yukarıdakilerin hiçbiri"

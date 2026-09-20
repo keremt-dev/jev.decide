@@ -1,0 +1,13 @@
+# Soru paketi: hook.risk_gate (docs/use-cases.md §4 — literal, elle gözden geçirilmiş)
+# Talimatlar kelimenin tam anlamıyla alınır; agent bunları yeniden yazmaz.
+q_class:
+  type: "choice"
+  instructions: "Bu komut çalışma dizininde veya sistemde hangi etkiyi yaratır?"
+  criteria:
+    safe: "Yalnızca okur veya geçici çıktı üretir; kalıcı değişiklik yok"
+    reversible: "Kalıcı değişiklik yapar ama kolayca geri alınabilir"
+    destructive: "Geri alınamaz veya geri alınması güç veri/durum kaybına yol açabilir"
+    other: "Yukarıdakilerin hiçbiri"
+q_conf:
+  type: "noul"
+  instructions: "Bu komut çalıştırılmadan kullanıcıdan açık onay istenmeli."

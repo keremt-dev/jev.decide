@@ -1,0 +1,12 @@
+# Soru paketi: review.comment_filter (docs/use-cases.md §2) — bulgu başına.
+c7_would_act:
+  type: "score"
+  instructions: "Bu bulgunun şiddeti nedir?"
+  criteria:
+    - "stil-tercihi: bir maintainer büyük olasılıkla değişiklik istemez"
+    - "minör-iyileştirme: değişiklik iyi olur zorunlu değil"
+    - "düzeltilmeli: gerçek bir hata veya tutarlılık sorunu"
+    - "engelleyici: birleştirme öncesi mutlaka düzeltilmeli"
+c7_evidence:
+  type: "noul"
+  instructions: "Bulgu, diff veya bağlamda gösterilen kanıtla doğrudan destekleniyor."

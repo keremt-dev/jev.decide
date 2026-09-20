@@ -1,0 +1,79 @@
+# jev.decide eşik ve mod yapılandırması
+# İLKELER:
+#   1) Bu dosya, karar davranışını etkileyen TÜM sayısal eşiklerin ve modların tek kaynağıdır.
+#      Kod ve SKILL.md sabit eşik içermez; yalnızca buradan okur.
+#   2) Eşikler kalibrasyon verisine (.jev/calibration.jsonl) bakılarak ayarlanır;
+#      her değişiklik önce shadow modda doğrulanır.
+#   3) Anlamı: confidence < floor → escalate/passthrough (act yok).
+#      "En iyi seçenek yeterliyse" confidence'a değil olasılığa bakılır (threshold-overuse uyarısı).
+
+version: 1
+
+defaults:
+  model: jev-latest
+  request_timeout_ms: 5000        # üst sınır; hedef 70–500ms bandı
+  max_retries: 3                  # yalnız 429/529 için
+  cache_ttl_seconds: 3600
+  floor: 0.60                     # global güven tabanı — altı asla otomatik act yok
+  telemetry_dir: .jev
+  calibration_first_n: 200        # route başına kalibrasyona yazılacak örnek sayısı
+
+# Modlar: off (kayıt yok) | shadow (ölç, akışa sıfır etki) | active (uygula)
+# Yeni bir route daima shadow ile başlar.
+
+routes:
+
+  # --- 1) PreToolUse risk kapısı (Bash) — escalate-only -------------------
+  hook.risk_gate:
+    mode: shadow                  # active geçiş kriteri: DESIGN.md §5.3
+    cache_ttl_seconds: 3600
+    static_safe_patterns:         # (1) ucuz öneşleme — Jev'e hiç gitmez
+      - "^ls( |$)"
+      - "^cat "
+      - "^grep "
+      - "^git status$"
+      - "^git diff"
+    thresholds:
+      destructive_block: 0.85     # choice=destructive bu güvenle → ask
+      safe_note: 0.90             # choice=safe bu güvenle → not düş, akış değişmez
+      agreement_floor: 0.60       # choice/noul güveni altındaysa → passthrough
+    rollout:
+      min_shadow_decisions: 50
+      max_mismatch_rate: 0.05
+      destructive_false_negatives_allowed: 0
+
+  # --- 2) Arama/keşif triyajı --------------------------------------------
+  search.triage:
+    mode: shadow
+    thresholds:
+      min_relevance_confidence: 0.65   # choice=relevant eşiği
+      read_top_k: 5                    # kodun okuyacağı dosya sayısı (eşik dışı kod kararı)
+      widen_on_below_floor: true       # tabanın altında → aramayı genişlet (LLM'e dön)
+
+  # --- 3) Kod yorumu şiddet filtresi -------------------------------------
+  review.comment_filter:
+    mode: shadow
+    thresholds:
+      emit_comment: 0.70          # score=düzeltilmeli bu güvenin altındaysa yorum düşülmez
+      max_comments_per_review: 8  # kod kararı (kalite tavanı)
+
+  # --- 4) Test hatası triyajı --------------------------------------------
+  test.triage:
+    mode: shadow
+    thresholds:
+      act_on_confidence: 0.80     # choice=flaky bu güvenle → retry (geri alınabilir aksiyon)
+      confirm_band: 0.60          # 0.60–0.80 → agent'a "muhtemel X, doğrula" notu
+      # < 0.60 → floor → systematic-debugging'e bırak (escalate)
+
+  # --- 5) Bitirme doğrulaması --------------------------------------------
+  verify.checklist:
+    mode: shadow
+    thresholds:
+      claim_done_on: 0.85         # tüm noul'ler evet VE bu güven → tamamlandı denilebilir
+      recheck_band: 0.60          # 0.60–0.85 → ilgili adımı yeniden çalıştır
+
+  # --- 6) Adhoc (skill üzerinden, route belirtilmemiş çağrılar) ----------
+  adhoc:
+    mode: active                  # salt-okunur/yerel çağrılara izin; hook içeren hiçbir şey adhoc olamaz
+    thresholds:
+      act_on_confidence: 0.85     # geri alınamaz hiçbir aksiyon adhoc act edilemez (kural)

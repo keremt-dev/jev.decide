@@ -1,0 +1,20 @@
+{
+  "name": "jev.decide",
+  "version": "0.1.0",
+  "description": "Jev (TypeSafe.ai) karar katmanı — MCP server (decide) + skill + PreToolUse risk kapısı. ZCode, Claude Code ve Codex ile çalışır.",
+  "type": "module",
+  "private": true,
+  "main": "mcp/server.js",
+  "bin": {
+    "jev-mcp": "mcp/server.js",
+    "jev-risk-gate": "hooks/risk-gate.js"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "start": "node mcp/server.js",
+    "hook": "node hooks/risk-gate.js",
+    "test": "node --test"
+  }
+}
