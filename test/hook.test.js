@@ -53,7 +53,7 @@ function cleanup(dir) {
   rmSync(dir, { recursive: true, force: true });
 }
 
-test('active + destructive 0.93 ≥ 0.85 → ASK kararı (permissionDecision)', () => {
+test('active + destructive 0.93 ≥ 0.85 → ask kararı (sözleşmedeki değer küçük harfli, B01)', () => {
   const { r, dir, stdout, telemetry } = runHook({
     command: 'rm -rf /tmp/jev-test',
     force: { q_class: { value: 'destructive', confidence: 0.93 }, q_conf: { value: 'no' } },
@@ -62,7 +62,7 @@ test('active + destructive 0.93 ≥ 0.85 → ASK kararı (permissionDecision)', 
     assert.equal(r.status, 0);
     const out = JSON.parse(stdout);
     assert.equal(out.hookSpecificOutput.hookEventName, 'PreToolUse');
-    assert.equal(out.hookSpecificOutput.permissionDecision, 'ASK');
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'ask');
     assert.match(out.hookSpecificOutput.permissionDecisionReason, /destructive/);
     assert.equal(telemetry.at(-1).verdict, 'ask');
     assert.equal(telemetry.at(-1).mode, 'active');
@@ -149,8 +149,57 @@ test('bileşik komut (ls && rm) statik listeye takılmaz — Jev değerlendirir'
   try {
     assert.equal(r.status, 0);
     const out = JSON.parse(stdout);
-    assert.equal(out.hookSpecificOutput.permissionDecision, 'ASK');
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'ask');
     assert.equal(telemetry.at(-1).reason, undefined); // static_safe değil
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test('B02: yeni satırla zincirlenen komut statik güvenliye DÜŞMEZ — Jev değerlendirir', () => {
+  const { r, dir, stdout, telemetry } = runHook({
+    command: 'ls\nrm -rf /tmp/important',
+    force: { q_class: { value: 'destructive', confidence: 0.99 }, q_conf: { value: 'no' } },
+  });
+  try {
+    assert.equal(r.status, 0);
+    const out = JSON.parse(stdout);
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'ask'); // ^ls desenine takılmadı
+    assert.equal(telemetry.at(-1).reason, undefined); // static_safe değil
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test('B03: git diff --output=... statik güvenli değil; --stat güvenli kalır', () => {
+  const danger = runHook({
+    command: 'git diff --output=valuable.txt',
+    force: { q_class: { value: 'destructive', confidence: 0.99 }, q_conf: { value: 'no' } },
+  });
+  try {
+    const out = JSON.parse(danger.stdout);
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'ask');
+    assert.equal(danger.telemetry.at(-1).reason, undefined);
+  } finally {
+    cleanup(danger.dir);
+  }
+  const safe = runHook({ command: 'git diff --stat HEAD~1' });
+  try {
+    assert.equal(safe.stdout, '');
+    assert.equal(safe.telemetry[0].reason, 'static_safe');
+  } finally {
+    cleanup(safe.dir);
+  }
+});
+
+test('B03 varyant: --output boşluklu biçim de Jev değerlendirmesine gider', () => {
+  const { dir, stdout, telemetry } = runHook({
+    command: 'git diff --output valuable.txt',
+    force: { q_class: { value: 'destructive', confidence: 0.99 }, q_conf: { value: 'no' } },
+  });
+  try {
+    assert.equal(JSON.parse(stdout).hookSpecificOutput.permissionDecision, 'ask');
+    assert.equal(telemetry.at(-1).reason, undefined);
   } finally {
     cleanup(dir);
   }
@@ -179,13 +228,13 @@ test('anahtar yok/mock kapalı → JEV_E_AUTH → fail-open passthrough, çıkı
   }
 });
 
-test('komut imzası cachei: aynı komut ikinci koşuda cached=true, karar değişmez', () => {
+test('komut cachei: aynı komut aynı bağlamda ikinci koşuda cached=true, karar değişmez', () => {
   const first = runHook({
     command: 'git push --force origin main',
     force: { q_class: { value: 'destructive', confidence: 0.95 }, q_conf: { value: 'no' } },
   });
   try {
-    assert.ok(JSON.parse(first.stdout).hookSpecificOutput.permissionDecision === 'ASK');
+    assert.ok(JSON.parse(first.stdout).hookSpecificOutput.permissionDecision === 'ask');
     // Aynı tmp dizinde ikinci koşu: state dir .jev → cwd'de
     const env = {
       ...process.env,
@@ -203,10 +252,46 @@ test('komut imzası cachei: aynı komut ikinci koşuda cached=true, karar deği�
     });
     assert.equal(r2.status, 0);
     // cache'ten gelen ilk değer (destructive) geçerli — yeni FORCE yok sayılır
-    assert.ok(JSON.parse((r2.stdout || '').trim()).hookSpecificOutput.permissionDecision === 'ASK');
+    assert.ok(JSON.parse((r2.stdout || '').trim()).hookSpecificOutput.permissionDecision === 'ask');
     const tel = readFileSync(join(first.dir, '.jev', 'telemetry.jsonl'), 'utf8')
       .split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l));
     assert.equal(tel.at(-1).cached, true);
+  } finally {
+    cleanup(first.dir);
+  }
+});
+
+test('B05: bağlam (cwd) değişirse cache isabet etmez — karar yeniden üretilir', () => {
+  const base = {
+    q_class: { value: 'destructive', confidence: 0.95 },
+    q_conf: { value: 'no' },
+  };
+  const first = runHook({ command: 'git reset --hard', force: base });
+  try {
+    assert.ok(JSON.parse(first.stdout).hookSpecificOutput.permissionDecision === 'ask');
+    // Aynı JEV_STATE_DIR/cwd ailesi ama FARKLI cwd → yeni değerlendirme
+    const otherDir = mkdtempSync(join(tmpdir(), 'jev-hook-ctx-'));
+    writeFileSync(join(otherDir, 'thresholds.yaml'), thresholdsWith('active'));
+    const env = {
+      ...process.env,
+      JEV_MOCK: '1',
+      JEV_MOCK_FORCE: JSON.stringify({ q_class: { value: 'safe', confidence: 0.99 }, q_conf: { value: 'no' } }),
+      JEV_THRESHOLDS: join(otherDir, 'thresholds.yaml'),
+    };
+    const r2 = spawnSync(process.execPath, [HOOK], {
+      input: JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'git reset --hard' }, cwd: otherDir }),
+      env,
+      cwd: otherDir,
+      encoding: 'utf8',
+      timeout: 20_000,
+    });
+    assert.equal(r2.status, 0);
+    assert.equal(r2.stdout.trim(), ''); // yeni bağlam: safe/note → sessiz (eski ask kararı taşınamadı)
+    const tel = readFileSync(join(otherDir, '.jev', 'telemetry.jsonl'), 'utf8')
+      .split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l));
+    assert.equal(tel.at(-1).cached, false);
+    assert.equal(tel.at(-1).verdict, 'note');
+    cleanup(otherDir);
   } finally {
     cleanup(first.dir);
   }

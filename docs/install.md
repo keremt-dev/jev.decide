@@ -98,8 +98,16 @@ JEV_API = "<anahtar>"
 ```bash
 npm test                 # tam paket (mock, gerçek API gerekmez)
 JEV_MOCK=1 node mcp/server.js   # stdio'da elle MCP el sıkışması
+
+# Risk kapısı dağıtımda SHADOW modda: sessiz geçer (akışa sıfır etki), karar telemetriye yazılır.
 echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/x"},"cwd":"."}' \
-  | JEV_MOCK=1 node hooks/risk-gate.js    # ASK JSON'ı basması beklenir (mock deterministiktir)
+  | JEV_MOCK=1 JEV_MOCK_FORCE='{"q_class":{"value":"destructive","confidence":0.93},"q_conf":{"value":"no"}}' \
+    node hooks/risk-gate.js
+cat .jev/telemetry.jsonl   # → "verdict":"ask","mode":"shadow" satırı
+
+# ACTIVE mod davranışını görmek için: docs/thresholds.yaml kopyasında hook.risk_gate
+# route'unu mode: active yapıp JEV_THRESHOLDS ile verin — aynı girdi bu kez
+# {"hookSpecificOutput":{"permissionDecision":"ask",...}} JSON'ı basar.
 ```
 
 Gerçek API sağlığı: server açılışında `GET /v1/models` yoklanır; hata stderr'e yazılır,

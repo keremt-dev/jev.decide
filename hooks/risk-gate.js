@@ -10,7 +10,6 @@ import { fileURLToPath } from 'node:url';
 import { DecidePipeline } from '../lib/core.js';
 import { resolveRoute } from '../lib/thresholds.js';
 import { loadPackage } from '../lib/questions.js';
-import { signatureKey } from '../lib/cache.js';
 
 const HOOK_ROUTE = 'hook.risk_gate';
 
@@ -42,14 +41,16 @@ function readStdinJson(maxMs) {
   });
 }
 
+// B02: yalnız YATAY boşluk daraltılır (\n/\r korunur) — "ls\nrm -rf" tek komuta
+// indirgenip statik güvenli listeye düşmesin. Normalizasyon shell sözdizimini değiştirmez.
 function normalizeCommand(command) {
-  return command.replace(/\s+/g, ' ').trim();
+  return command.replace(/[ \t]+/g, ' ').trim();
 }
 
-// Zincirleme/işleçli komutlar ("ls && rm -rf") statik güvenli listeye ALINAMAZ — parçaların
-// en risklisi bütün hakkında söz söylemez; bunlar Jev'e gider.
+// Zincirleme/işleçli komutlar ("ls && rm -rf", "ls\nrm -rf", "git diff > f") statik güvenli
+// listeye ALINAMAZ — parçaların en risklisi bütün hakkında söz söylemez; bunlar Jev'e gider.
 function hasChaining(sig) {
-  return /[;|&<>`()\n]/.test(sig);
+  return /[;|&<>`()\n\r]/.test(sig);
 }
 
 function gitStatusDirty(cwd) {
@@ -153,13 +154,14 @@ async function main() {
     cwd: typeof payload.cwd === 'string' ? payload.cwd : null,
     git_dirty: gitStatusDirty(payload.cwd),
   };
-  const cacheKey = signatureKey(sig); // (2) komut imzası cache'i
+  // B05: cache anahtarı varsayılan içerik hash'idir (komut+cwd+git_dirty+model+soru paketi+
+  // mock/canlı kaynak) — bağlam değişirse karar yeniden üretilir.
   const deadlineMs = routeCfg.requestTimeoutMs + 2000;
 
   const outcome = await withDeadline(
     pipeline.run(
       { state, questions, route: HOOK_ROUTE },
-      { cacheKey, verdictOf: (o) => classifyVerdict(o, th) },
+      { verdictOf: (o) => classifyVerdict(o, th) },
     ),
     deadlineMs,
     () => {
@@ -195,7 +197,7 @@ async function main() {
       JSON.stringify({
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
-          permissionDecision: 'ASK',
+          permissionDecision: 'ask', // B01: sözleşmedeki değer küçük harfli ("allow"|"deny"|"ask")
           permissionDecisionReason: `jev.decide risk gate: destructive (güven ${conf} ≥ ${th.destructive_block}) — ek onay önerilir`,
         },
       }),

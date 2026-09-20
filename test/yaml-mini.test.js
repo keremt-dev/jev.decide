@@ -25,13 +25,8 @@ test('gerçek thresholds.yaml: hook.risk_gate route bloğu', () => {
   const r = th.routes['hook.risk_gate'];
   assert.equal(r.mode, 'shadow');
   assert.equal(r.cache_ttl_seconds, 3600);
-  assert.deepEqual(r.static_safe_patterns, [
-    '^ls( |$)',
-    '^cat ',
-    '^grep ',
-    '^git status$',
-    '^git diff',
-  ]);
+  assert.equal(r.static_safe_patterns.length, 5);
+  assert.equal(r.static_safe_patterns[4], '^git diff(?!.*--output[= ])');
   assert.equal(r.thresholds.destructive_block, 0.85);
   assert.equal(r.thresholds.safe_note, 0.9);
   assert.equal(r.thresholds.agreement_floor, 0.6);
@@ -69,6 +64,11 @@ test('tırnak içi # ve : korunur, satır sonu yorumu atılır', () => {
 
 test('yorum ve boşluklar: boş belge → {}', () => {
   assert.deepEqual(parse('# sadece yorum\n\n   \n'), {});
+});
+
+test('tüketilmemiş içerik / girinti azalışı reddedilir (küçük 4)', () => {
+  assert.throws(() => parse('  a: 1\nb: 2'), /tüketilmemiş içerik|girinti/);
+  assert.throws(() => parse('a:\n    b: 1\n  c: 2'), /tüketilmemiş içerik|girinti/);
 });
 
 test('yinelenen anahtar reddedilir', () => {

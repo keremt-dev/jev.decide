@@ -33,10 +33,15 @@ with a fail-open guarantee.
 ## Quick start
 
 ```bash
-npm test                                  # 70 tests, mock-based — no API key needed
+npm test                                  # 82 tests, mock-based — no API key needed
 JEV_MOCK=1 node mcp/server.js             # run the MCP server over stdio (mock mode)
+
+# Risk-gate smoke test. NOTE: the shipped route is in *shadow* mode, so the hook stays
+# silent by design — the verdict lands in .jev/telemetry.jsonl instead:
 echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/x"},"cwd":"."}' \
-  | JEV_MOCK=1 node hooks/risk-gate.js    # smoke-test the risk gate (prints an ASK decision)
+  | JEV_MOCK=1 JEV_MOCK_FORCE='{"q_class":{"value":"destructive","confidence":0.93},"q_conf":{"value":"no"}}' \
+    node hooks/risk-gate.js
+cat .jev/telemetry.jsonl                  # → verdict:"ask", mode:"shadow"
 ```
 
 For real usage, set the `JEV_API` environment variable to your TypeSafe.ai API key.
@@ -94,7 +99,7 @@ jev.decide/
   hooks/risk-gate.js      — PreToolUse risk gate (off→shadow→active, escalate-only)
   skills/jev-decide/SKILL.md — the rule layer (when/how to call Jev)
   questions/*.yaml        — hand-reviewed question packs (verbatim from use-cases.md)
-  test/                   — node:test suite (70 tests; mock-based, plus real-API verified)
+  test/                   — node:test suite (82 tests; mock-based, plus real-API verified)
 ```
 
 ## Core principles (from the research pass)

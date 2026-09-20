@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Cache, canonicalJson, contentKey, signatureKey } from '../lib/cache.js';
+import { Cache, canonicalJson, contentKey } from '../lib/cache.js';
 
 test('canonicalJson: anahtar sırası bağımsız, diziler sıra korur', () => {
   const a = { b: 1, a: { d: 2, c: [3, 1] } };
@@ -13,14 +13,14 @@ test('canonicalJson: anahtar sırası bağımsız, diziler sıra korur', () => {
   assert.equal(canonicalJson(null), 'null');
 });
 
-test('contentKey: içerik aynıysa anahtar aynı, farklıysa farklı', () => {
+test('contentKey: içerik aynıysa anahtar aynı, farklıysa farklı; extra kaynak ayrımı yapar', () => {
   const args = { model: 'jev-latest', state: 's', questions: { q: { type: 'noul', instructions: 'x' } } };
   const k1 = contentKey(args);
   const k2 = contentKey({ ...args, questions: { q: { instructions: 'x', type: 'noul' } } }); // anahtar sırası farklı
   assert.equal(k1, k2);
   assert.notEqual(k1, contentKey({ ...args, state: 'farklı' }));
+  assert.notEqual(contentKey(args), contentKey({ ...args, extra: 'src:mock|base:' })); // B04: kaynak etiketi
   assert.match(k1, /^[0-9a-f]{64}$/);
-  assert.match(signatureKey('git reset --hard'), /^[0-9a-f]{64}$/);
 });
 
 test('Cache: TTL dolunca isabet düşer (enjekte edilen saat)', () => {

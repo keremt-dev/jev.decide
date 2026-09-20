@@ -1,9 +1,16 @@
 # jev.decide — Mimari Tasarım
 
-Sürüm: 0.2 (implementasyon) · Tarih: 2026-09-20
+Sürüm: 0.2.1 (inceleme düzeltmeleri) · Tarih: 2026-09-20
 Girdiler: docs.typesafe.ai, resmi skill reposu, topluluk entegrasyonları (bkz. README §Kaynaklar)
 Değişiklik 0.2: çoklu-harness kararı (ZCode + Claude Code + Codex), anahtar `JEV_API`,
 §9 açık kararları kapatıldı, implementasyon haritası eklendi (§10).
+Değişiklik 0.2.1: repo incelemesi bulguları B01–B09 + 4 küçük nokta düzeltildi
+([docs/reviews/repo_inceleme_2026-09-20_v0.1.md](docs/reviews/repo_inceleme_2026-09-20_v0.1.md)):
+hook sözleşme değeri `ask` (küçük harf), ham komut zincirleme denetimi, `git diff --output`
+hariç tutma, kaynak (mock/canlı+baseUrl) etiketli ve bağlam (cwd/git_dirty) duyarlı cache
+anahtarı, pipeline `off` modu + `meta.mode` + uyarıların meta'ya akışı, HTTP 200 yanıt
+doğrulaması (`JEV_E_BAD_RESPONSE`), retry toplam süre bütçesi, noul ham olasılıkla sınıflama,
+probeModels `name` alanı + timeout, yaml-mini tüketilmemiş içerik denetimi.
 
 ---
 
@@ -103,7 +110,8 @@ Skill, agent'a şu kuralları verir (tam metin implementasyonda yazılır):
 
 ```
 Bash komutu → (1) ucuz statik öneşleme: regex ile açıkça güvenli listeye al
-            → (2) cache isabeti? (komut imzası hash) → anında karar
+                 (yalnız zincirsiz komutlara: ham komutta ;|&<>`() ve satır sonu varsa Jev'e gider)
+            → (2) cache isabeti? (içerik hash'i: komut+cwd+git_dirty+model+soru paketi+mock/canlı kaynak)
             → (3) jev.decide tek çağrı, iki soru:
                  q_class : choice{safe, reversible, destructive, other}
                  q_conf  : noul("bu komut onay istemeli mi?")
@@ -163,10 +171,12 @@ Karar noktaları arasına yerleştirilir; toplulaştırılamayan tekil karar LLM
 
 ## 9. Açık kararlar — KAPANDI (0.2 implementasyon)
 
-1. **Cache kapsamı → çözüldü:** hook için komut-imzası hash'i (`signatureKey`), genel `decide`
-   için state+questions+model içerik hash'i (`contentKey`, canonical JSON). TTL route bazlı
-   (öntanımlı 1h), çağrı bazlı `ttl_seconds` geçersiz kılar; 0 = cache yok. Süreç içi Map +
-   `.jev/cache.json` kalıcılığı (hook kısa ömürlü süreç).
+1. **Cache kapsamı → çözüldü (0.2.1'de sağlamlaştırıldı):** genel `decide` ve hook aynı
+   mekanizmayı kullanır — `contentKey` içerik hash'i (canonical JSON: model+state+questions).
+   Hook'ta state komut+cwd+git_dirty içerdiğinden anahtar bağlam duyarlıdır; anahtara ayrıca
+   kaynak etiketi (mock/canlı + baseUrl) gömülür — mock sonuçlar canlı modda kullanılamaz.
+   TTL route bazlı (öntanımlı 1h), çağrı bazlı `ttl_seconds` geçersiz kılar; 0 = cache yok.
+   Süreç içi Map + `.jev/cache.json` kalıcılığı (hook kısa ömürlü süreç).
 2. **Soru paketleri → çözüldü:** `questions/*.yaml` (use-cases.md §'leriyle birebir, generik
    kimlikler + `withPrefix` ile aday fan-out); `use-cases.md` referans doküman olarak sürer.
 3. **Mock modu → çözüldü:** `JEV_MOCK=1` deterministik (girdi-hash'li PRNG), `JEV_MOCK_DELAY_MS`
@@ -182,7 +192,7 @@ Karar noktaları arasına yerleştirilir; toplulaştırılamayan tekil karar LLM
 | `lib/yaml-mini.js` | thresholds + questions alt kümesi parser (akış `{|}` ve çok satırlı bilinçli olarak yok) |
 | `lib/thresholds.js` | tek kaynak `docs/thresholds.yaml`; `JEV_THRESHOLDS` override; bilinmeyen route hata |
 | `lib/validate.js` | şema §1: `JEV_E_NO_ESCAPE`, `JEV_E_STATE_TOO_LARGE`, `JEV_W_CODE_OP`, `JEV_W_DEPENDENT` |
-| `lib/cache.js` | `contentKey`/`signatureKey` + TTL'li süreç-içi/dosya cache (best-effort) |
+| `lib/cache.js` | `contentKey` (+ mock/canlı kaynak etiketi) + TTL'li süreç-içi/dosya cache (best-effort) |
 | `lib/telemetry.js` | `telemetry.jsonl` (state/soru metni ASLA) + `calibration.jsonl` (ilk N + outcome) |
 | `lib/client.js` | `POST /v1/systemone` + retry/hata eşleme (§3) + `GET /v1/models` yoklama + mock |
 | `lib/core.js` | paylaşılan karar hattı; `verdictOf` kancası ile hook verdict'i tek telemetri satırında |

@@ -114,7 +114,11 @@ Sürüm: 0.1 (tasarım) · Hedef API: `POST https://api.typesafe.ai/v1/systemone
     "latency_ms": 412,
     "cached": false,
     "usage": { "input_tokens": 1830, "output_tokens": 0 },
-    "route": "hook.risk_gate"
+    "route": "hook.risk_gate",
+    "mode": "active",            // route modu (off|shadow|active) — gölge sonuç aksiyona çevrilmez
+    "floor": 0.6,                // route güven tabanı (yorum çağırıcının)
+    "thresholds": { … },         // route eşikleri — agent sabit eşik taşımaz
+    "warnings": [ … ]            // JEV_W_* yumuşak uyarıları (ör. aritmetik kalıbı)
   }
 }
 ```
@@ -124,9 +128,11 @@ Sürüm: 0.1 (tasarım) · Hedef API: `POST https://api.typesafe.ai/v1/systemone
 | Durum | Davranış | MCP'ye dönen |
 |---|---|---|
 | `422` | Asla retry — çağıran hatası | `JEV_E_BAD_REQUEST` + API mesajı |
-| `429` / `529` | Retry: max 3, üstel backoff, `retry-after`e saygı | tükenirse `JEV_E_RATE_LIMIT` |
-| `401/403` | Retry yok | `JEV_E_AUTH` (anahtar yok/geçersiz — fail-open çağırıcıya bırakılır) |
+| `429` / `529` | Retry: max 3, üstel backoff, `retry-after`e saygı — **toplam süre bütçesi** (`request_timeout_ms`, denemeler + backoff dahil) bağlayıcıdır; bütçe biterse beklemek yerine vazgeçilir | tükenirse `JEV_E_RATE_LIMIT` |
+| `401/403` | Retry yok | `JEV_E_AUTH` (anahtar yok/geçersiz — fail-open çağıranına bırakılır) |
 | `5xx` (diğer) / ağ / timeout | Retry yok (tasarım kararı: karar katmanı idempotent değilse gecikme katlanır; route isterse açıkça `retry: true`) | `JEV_E_UNAVAILABLE` |
+| `200` ama yanıt eksik/bozuk | Retry yok — istenen her soru için value/probabilities/confidence şema denetimi yapılır; cache'e **yazılmaz** | `JEV_E_BAD_RESPONSE` |
+| route `mode: off` | Çağrı yok, telemetri yok ("off (kayıt yok)") | `JEV_E_ROUTE_OFF` + passthrough önerisi |
 | Mock modu `JEV_MOCK=1` | HTTP yerine deterministik sahte yanıt + enjekte edilebilir gecikme | — |
 
 **Çağıran sözleşmesi:** bu hataların hiçbiri agent akışını durdurmaz; her çağıran route
@@ -135,10 +141,13 @@ alanı + `verdict: "passthrough"` önerisi taşınır.
 
 ## 4. Cache
 
-- Anahtar: `sha256(model ∥ canonical_json(state) ∥ canonical_json(questions))`.
+- Anahtar: `sha256(model ∥ canonical_json(state) ∥ canonical_json(questions) ∥ kaynak_etiketi)`.
+  Kaynak etiketi = `mock|canlı` + `baseUrl` — mock sonuçlar canlı modda (ve tersi) kullanılamaz.
 - TTL: route öntanımlısı (`thresholds.yaml`) → çağrı bazlı `ttl_seconds` ile geçersiz kılınır.
-- Hook route'u için ek anahtar: komut imzası normalization (yol/glob normalize edilmiş hali).
+- Hook route'u aynı içerik hash'ini kullanır; state komut+cwd+git_dirty içerdiğinden anahtar
+  bağlam duyarlıdır (aynı komut farklı çalışma dizininde yeniden değerlendirilir).
 - Cache isabeti telemetriye `cached: true` olarak yazılır (latency ölçümünü bulanmasın).
+- Cache'e yalnız doğrulanmış yanıtlar yazılır (§3 `JEV_E_BAD_RESPONSE`).
 
 ## 5. Telemetri olay şeması (`.jev/telemetry.jsonl`, satır başına bir olay)
 

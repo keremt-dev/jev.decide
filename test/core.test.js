@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DecidePipeline } from '../lib/core.js';
@@ -190,6 +190,102 @@ test('istemci hatası → ok:false, telemetriye error kodu, verdictOf uygulanır
     const tel = readJsonl(dir, 'telemetry.jsonl');
     assert.equal(tel[0].error, 'JEV_E_AUTH');
     assert.equal(tel[0].verdict, 'passthrough');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('B06: mode off → çağrı yok, kayıt yok, fail-open zarfı (JEV_E_ROUTE_OFF)', async () => {
+  const dir = freshDir();
+  const thDir = mkdtempSync(join(tmpdir(), 'jev-core-th-'));
+  try {
+    // adhoc route'unu off yapan geçici thresholds
+    let th = readFileSync(new URL('../docs/thresholds.yaml', import.meta.url), 'utf8');
+    const i = th.indexOf('adhoc:');
+    const at = th.indexOf('mode: active', i);
+    writeFileSync(join(thDir, 'thresholds.yaml'), th.slice(0, at) + 'mode: off' + th.slice(at + 'mode: active'.length));
+
+    let calls = 0;
+    const client = { cfg: {}, mockMode: false, async decide() { calls += 1; } };
+    const prev = process.env.JEV_STATE_DIR;
+    process.env.JEV_STATE_DIR = dir;
+    const p = new DecidePipeline({ thresholds: loadThresholds(join(thDir, 'thresholds.yaml')), client });
+    if (prev === undefined) delete process.env.JEV_STATE_DIR;
+    else process.env.JEV_STATE_DIR = prev;
+
+    const out = await p.run({ state: 's', questions });
+    assert.equal(out.ok, false);
+    assert.equal(out.error.code, 'JEV_E_ROUTE_OFF');
+    assert.equal(out.meta.mode, 'off');
+    assert.equal(out.meta.verdict_suggestion, 'passthrough');
+    assert.equal(calls, 0);
+    assert.equal(readJsonl(dir, 'telemetry.jsonl').length, 0); // "off (kayıt yok)"
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(thDir, { recursive: true, force: true });
+  }
+});
+
+test('B06/küçük-1: başarı meta.mode taşınır; doğrulama uyarıları meta.warnings içinde döner', async () => {
+  const dir = freshDir();
+  try {
+    const p = mockPipeline(dir);
+    const warned = {
+      q: { type: 'noul', instructions: 'Loglarda kaç tane hata var?' }, // JEV_W_CODE_OP
+    };
+    const out = await p.run({ state: 's', questions: warned });
+    assert.equal(out.ok, true);
+    assert.equal(out.meta.mode, 'active'); // adhoc
+    assert.ok(out.meta.warnings.some((w) => w.code === 'JEV_W_CODE_OP'));
+
+    const clean = await p.run({ state: 's2', questions });
+    assert.deepEqual(clean.meta.warnings, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('B04: mock cache canlı modda kullanılamaz — kaynak etiketi anahtarı ayırır', async () => {
+  const dir = freshDir();
+  try {
+    // 1) mock pipeline aynı girdiyi cache'ler
+    const mockP = mockPipeline(dir);
+    const m1 = await mockP.run({ state: 's', questions });
+    assert.equal(m1.meta.cached, false);
+
+    // 2) aynı dizin + aynı girdi, CANLI istemci → cache isabet etmez, istemci çağrılır
+    let liveCalls = 0;
+    const liveClient = {
+      cfg: { baseUrl: 'https://api.typesafe.ai' },
+      mockMode: false,
+      async decide() {
+        liveCalls += 1;
+        return {
+          answers: { q1: { value: 'relevant', confidence: 0.9 } },
+          meta: { model: 'jev-1.13.0', request_id: 'req_live', latency_ms: 5, cached: false, usage: null },
+        };
+      },
+    };
+    const prev = process.env.JEV_STATE_DIR;
+    process.env.JEV_STATE_DIR = dir;
+    const liveP = new DecidePipeline({ thresholds: loadThresholds(), client: liveClient });
+    if (prev === undefined) delete process.env.JEV_STATE_DIR;
+    else process.env.JEV_STATE_DIR = prev;
+
+    const l1 = await liveP.run({ state: 's', questions });
+    assert.equal(l1.meta.cached, false);
+    assert.equal(l1.meta.model, 'jev-1.13.0');
+    assert.equal(liveCalls, 1);
+
+    // 3) canlı çağrı sonrası ikinci canlı koşu kendi cache'inden isabet alır
+    const l2 = await liveP.run({ state: 's', questions });
+    assert.equal(l2.meta.cached, true);
+    assert.equal(liveCalls, 1);
+
+    // 4) mock'a dönüş yine kendi cache'inden isabet alır (canlı sonucu sızmadı)
+    const m2 = await mockP.run({ state: 's', questions });
+    assert.equal(m2.meta.cached, true);
+    assert.equal(m2.meta.model, 'jev-mock-1.0');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

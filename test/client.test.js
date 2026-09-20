@@ -106,12 +106,17 @@ test('401 → JEV_E_AUTH, retry yok', async () => {
   assert.equal(fetchImpl.calls.length, 1);
 });
 
+const OK_BODY = {
+  answers: { q_class: { type: 'choice', choice: 'safe', confidence: 0.9, probabilities: { safe: 0.9 } }, q_conf: { type: 'noul', noul: 0.6 } },
+  model: 'jev-1.13.0',
+};
+
 test('429 sonra 200 → retry eder (max 3, backoff uygulanır), sonra başarı', async () => {
   const fetchImpl = httpCalls();
   fetchImpl.responses = [
     res(429, {}, { 'retry-after': '0' }),
     res(529, {}),
-    res(200, { answers: { q: { value: 'yes', confidence: null } }, model: 'jev-1.13.0' }, { 'x-typesafe-request-id': 'req_1' }),
+    res(200, OK_BODY, { 'x-typesafe-request-id': 'req_1' }),
   ];
   const sleeps = [];
   const c = new JevClient({
@@ -121,10 +126,34 @@ test('429 sonra 200 → retry eder (max 3, backoff uygulanır), sonra başarı',
   });
   const r = await c.decide({ state: 's', questions: qs }, { maxRetries: 3 });
   assert.equal(fetchImpl.calls.length, 3);
-  assert.deepEqual(sleeps, [400, 800]); // retry-after 0ms + üstel 400·2^n
+  assert.deepEqual(sleeps, [400, 800]); // retry-after 0ms + üstel 400·2^n (bütçe içinde)
   assert.equal(r.meta.request_id, 'req_1');
   assert.equal(r.meta.model, 'jev-1.13.0');
   assert.ok(r.meta.latency_ms >= 0);
+  // normaller + doğrulama: her soru geçerli yanıt aldı
+  assert.equal(r.answers.q_class.value, 'safe');
+  assert.equal(r.answers.q_conf.value, 'yes');
+});
+
+test('B08: retry beklemesi TOPLAM bütçeye bağlı — 429+Retry-After:60 hızla tükensin', async () => {
+  const fetchImpl = httpCalls();
+  fetchImpl.responses = Array(10).fill(res(429, {}, { 'retry-after': '60' }));
+  const sleeps = [];
+  let t = 1000; // sanal saat: sleep gerçek beklemek yerine saati ilerletir
+  const c = new JevClient({
+    config: { apiKey: 'k' },
+    fetchImpl,
+    now: () => t,
+    sleep: async (ms) => {
+      sleeps.push(ms);
+      t += ms;
+    },
+  });
+  await assert.rejects(() => c.decide({ state: 's', questions: qs }, { timeoutMs: 5000 }), {
+    code: 'JEV_E_RATE_LIMIT',
+  });
+  assert.equal(fetchImpl.calls.length, 1); // ikinci deneme yok: bütçe beklemeye gitti
+  assert.deepEqual(sleeps, [5000]); // 60s talebi 5s bütçeye kırpıldı
 });
 
 test('429 tükenirse → JEV_E_RATE_LIMIT (3 retry sonrası)', async () => {
@@ -179,9 +208,45 @@ test('gerçek API doğal biçimi normallenir: choice→value, noul→yes/no + pr
   assert.equal(norm.q_low.probabilities.yes, 0.2);
 });
 
+test('B07: HTTP 200 ama yanıt boş/eksik → JEV_E_BAD_RESPONSE, retry yok, cache yazılmaz', async () => {
+  const cases = [
+    res(200, {}), // answers hiç yok
+    res(200, { answers: { q_class: OK_BODY.answers.q_class } }), // q_conf eksik
+    res(200, { answers: { q_class: { type: 'choice', choice: 'tanımsız', confidence: 0.9 }, q_conf: { type: 'noul', noul: 0.6 } } }), // seçenek dışı değer
+    res(200, { answers: { q_class: { type: 'choice', choice: 'safe', confidence: 1.7 }, q_conf: { type: 'noul', noul: 0.6 } } }), // confidence aralık dışı
+  ];
+  for (const bad of cases) {
+    const fetchImpl = httpCalls();
+    fetchImpl.responses = [bad];
+    const c = new JevClient({ config: { apiKey: 'k' }, fetchImpl, sleep: async () => {} });
+    await assert.rejects(() => c.decide({ state: 's', questions: qs }), { code: 'JEV_E_BAD_RESPONSE' });
+    assert.equal(fetchImpl.calls.length, 1);
+  }
+});
+
+test('B09: noul sınıflama ham olasılıktan — 0.4999 no, 0.5 yes, 0.5001 yes', async () => {
+  const { normalizeAnswers } = await import('../lib/client.js');
+  const n = (p) => normalizeAnswers({ q: { type: 'noul', noul: p } }).q;
+  assert.equal(n(0.4999).value, 'no');
+  assert.equal(n(0.4999).probabilities.yes, 0.5); // gösterim yuvarlaması kararı değiştirmez
+  assert.equal(n(0.5).value, 'yes');
+  assert.equal(n(0.5001).value, 'yes');
+  assert.equal(n(0.5001).probabilities.yes, 0.5);
+});
+
+test('probeModels: {models:[{name}]} tel biçimi çözülür + timeout üst sınırı (küçük 2)', async () => {
+  const fetchImpl = (url, opts) => {
+    assert.ok(opts.signal, 'yoklamada abort sinyali olmalı');
+    return Promise.resolve(res(200, { models: [{ name: 'jev-latest' }, { name: 'jev-preview' }] }));
+  };
+  const c = new JevClient({ config: { apiKey: 'k' }, fetchImpl });
+  const r = await c.probeModels({ timeoutMs: 500 });
+  assert.deepEqual(r.models, ['jev-latest', 'jev-preview']);
+});
+
 test('istek gövdesi ve üstbilgiler: POST /v1/systemone, Bearer, model koşullu', async () => {
   const fetchImpl = httpCalls();
-  fetchImpl.responses = [res(200, { answers: {}, model: 'm' })];
+  fetchImpl.responses = [res(200, OK_BODY)];
   const c = new JevClient({ config: { apiKey: 'k', baseUrl: 'https://api.typesafe.ai/' }, fetchImpl });
   await c.decide({ state: 's', questions: qs, model: 'jev-preview' });
   const call = fetchImpl.calls[0];
