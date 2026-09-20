@@ -110,7 +110,7 @@ function rpcError(id, code, message) {
 
 // Test edilebilir mesaj işleyici — stdio döngüsünden bağımsız.
 export function createMessageHandler({ pipeline = null, loadError = null } = {}) {
-  return async function handle(msg) {
+  return async function handle(msg, opts = {}) {
     if (!msg || typeof msg !== 'object' || typeof msg.method !== 'string') return null;
     const isRequest = msg.id !== undefined;
 
@@ -140,7 +140,7 @@ export function createMessageHandler({ pipeline = null, loadError = null } = {})
           isError: true,
         });
       }
-      const out = await pipeline.run(args);
+      const out = await pipeline.run(args, opts);
       return result(msg.id, {
         content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
         isError: !out.ok,
@@ -172,8 +172,36 @@ export async function main() {
     process.stderr.write('[jev] JEV_MOCK=1 — mock modda çalışıyor\n');
   }
 
+  await serveStdio({ pipeline, loadError });
+}
+
+// Kararlar sınırlı eşzamanlı çalışır; ping/iptal mesajları iş kuyruğunu beklemez.
+export async function serveStdio({ pipeline, loadError, input = process.stdin, output = process.stdout,
+  maxConcurrent = 4, maxQueued = 64 } = {}) {
   const handle = createMessageHandler({ pipeline, loadError });
-  const rl = createInterface({ input: process.stdin });
+  const pending = new Map();
+  const queue = [];
+  const running = new Set();
+  const send = (response) => { if (response) output.write(`${JSON.stringify(response)}\n`); };
+  const invoke = async (msg, signal) => {
+    try { return await handle(msg, { signal }); }
+    catch (e) { return msg.id !== undefined ? rpcError(msg.id, -32603, `İç sunucu hatası: ${e?.message || e}`) : null; }
+  };
+  function pump() {
+    while (running.size < maxConcurrent && queue.length > 0) {
+      const job = queue.shift();
+      if (job.controller.signal.aborted) { pending.delete(job.msg.id); continue; }
+      const task = invoke(job.msg, job.controller.signal).then(response => {
+        if (!job.controller.signal.aborted) send(response);
+      }).finally(() => {
+        pending.delete(job.msg.id);
+        running.delete(task);
+        pump();
+      });
+      running.add(task);
+    }
+  }
+  const rl = createInterface({ input });
   for await (const line of rl) {
     const trimmed = line.trim();
     if (trimmed === '') continue;
@@ -183,14 +211,32 @@ export async function main() {
     } catch {
       continue; // bozuk satır — istek kimliği olmadan yanıtlanamaz
     }
-    let response;
-    try {
-      response = await handle(msg);
-    } catch (e) {
-      response = msg.id !== undefined ? rpcError(msg.id, -32603, `İç sunucu hatası: ${e?.message || e}`) : null;
+    if (msg?.method === 'notifications/cancelled') {
+      const id = msg.params?.requestId;
+      const job = pending.get(id);
+      if (job) {
+        job.controller.abort();
+        const index = queue.indexOf(job);
+        if (index >= 0) { queue.splice(index, 1); pending.delete(id); }
+      }
+      continue;
     }
-    if (response) process.stdout.write(`${JSON.stringify(response)}\n`);
+    if (msg?.method === 'tools/call' && msg.id !== undefined) {
+      if (pending.has(msg.id)) { send(rpcError(msg.id, -32600, 'İstek kimliği zaten işleniyor')); continue; }
+      if (running.size >= maxConcurrent && queue.length >= maxQueued) {
+        send(rpcError(msg.id, -32000, 'Karar kuyruğu dolu; daha sonra tekrar deneyin'));
+        continue;
+      }
+      const job = { msg, controller: new AbortController() };
+      pending.set(msg.id, job);
+      queue.push(job);
+      pump();
+    } else {
+      send(await invoke(msg));
+    }
   }
+  // EOF'ta kabul edilen işleri bitir; iptal edilen işlerin yanıtı bastırılır.
+  while (running.size > 0) await Promise.all([...running]);
 }
 
 const isMain =

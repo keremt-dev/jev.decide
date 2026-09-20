@@ -26,7 +26,10 @@ test('gerçek thresholds.yaml: hook.risk_gate route bloğu', () => {
   assert.equal(r.mode, 'shadow');
   assert.equal(r.cache_ttl_seconds, 3600);
   assert.equal(r.static_safe_patterns.length, 5);
-  assert.equal(r.static_safe_patterns[4], '^git diff(?!.*--output[= ])');
+  const diffPattern = new RegExp(r.static_safe_patterns[4]);
+  assert.equal(diffPattern.test('git diff --stat HEAD~1'), true);
+  assert.equal(diffPattern.test("git diff '--output'=x"), false);
+  assert.equal(diffPattern.test('git diff --ext-diff'), false);
   assert.equal(r.thresholds.destructive_block, 0.85);
   assert.equal(r.thresholds.safe_note, 0.9);
   assert.equal(r.thresholds.agreement_floor, 0.6);

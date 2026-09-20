@@ -33,7 +33,7 @@ with a fail-open guarantee.
 ## Quick start
 
 ```bash
-npm test                                  # 82 tests, mock-based — no API key needed
+npm test                                  # 98 tests, mock-based — no API key needed
 JEV_MOCK=1 node mcp/server.js             # run the MCP server over stdio (mock mode)
 
 # Risk-gate smoke test. NOTE: the shipped route is in *shadow* mode, so the hook stays
@@ -99,7 +99,7 @@ jev.decide/
   hooks/risk-gate.js      — PreToolUse risk gate (off→shadow→active, escalate-only)
   skills/jev-decide/SKILL.md — the rule layer (when/how to call Jev)
   questions/*.yaml        — hand-reviewed question packs (verbatim from use-cases.md)
-  test/                   — node:test suite (82 tests; mock-based, plus real-API verified)
+  test/                   — node:test suite (98 tests; mock-based)
 ```
 
 ## Core principles (from the research pass)

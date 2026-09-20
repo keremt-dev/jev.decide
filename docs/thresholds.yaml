@@ -32,7 +32,7 @@ routes:
       - "^cat "
       - "^grep "
       - "^git status$"
-      - "^git diff(?!.*--output[= ])"   # --output=... dosyaya yazar → Jev'e gider (B03)
+      - "^git diff( --(stat|name-only|name-status|shortstat|numstat|summary|check|cached|staged))*( [A-Za-z0-9_./][A-Za-z0-9_./~^-]*)?$" # yalnız basit salt-okunur biçimler
     thresholds:
       destructive_block: 0.85     # choice=destructive bu güvenle → ask
       safe_note: 0.90             # choice=safe bu güvenle → not düş, akış değişmez

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // PreToolUse risk kapısı (DESIGN.md §5) — escalate-only, fail-open.
 // Claude Code / ZCode hook sözleşmesi: stdin'de {tool_name, tool_input, cwd} JSON alır.
-// Çıktı kararları: passthrough (sessiz) | note (sessiz, telemetriye yazılır) | ask (permissionDecision ASK).
+// Çıktı kararları: passthrough (sessiz) | note (sessiz, telemetriye yazılır) | ask (permissionDecision ask).
 // Hook asla 'allow' üretmez — izin azami harness'in izin sistemindedir (monotonic safety).
 // Codex PreToolUse hook'unu desteklemez; orada bu kapı çalışmaz → davranış Jev'siz olur (fail-open by design).
 import { spawnSync } from 'node:child_process';
@@ -39,12 +39,6 @@ function readStdinJson(maxMs) {
     process.stdin.on('end', finish);
     process.stdin.on('error', finish);
   });
-}
-
-// B02: yalnız YATAY boşluk daraltılır (\n/\r korunur) — "ls\nrm -rf" tek komuta
-// indirgenip statik güvenli listeye düşmesin. Normalizasyon shell sözdizimini değiştirmez.
-function normalizeCommand(command) {
-  return command.replace(/[ \t]+/g, ' ').trim();
 }
 
 // Zincirleme/işleçli komutlar ("ls && rm -rf", "ls\nrm -rf", "git diff > f") statik güvenli
@@ -122,7 +116,8 @@ async function main() {
   if (routeCfg.mode === 'off') return exitQuiet();
   const th = routeCfg.thresholds;
 
-  const sig = normalizeCommand(rawCommand);
+  // Model ve cache ham komutu kullanır: tırnak içindeki boşluklar anlamlıdır.
+  const sig = rawCommand;
   const staticSafe =
     !hasChaining(sig) &&
     routeCfg.staticSafePatterns.some((p) => {

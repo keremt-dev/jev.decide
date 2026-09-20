@@ -228,10 +228,10 @@ test('B09: noul sınıflama ham olasılıktan — 0.4999 no, 0.5 yes, 0.5001 yes
   const { normalizeAnswers } = await import('../lib/client.js');
   const n = (p) => normalizeAnswers({ q: { type: 'noul', noul: p } }).q;
   assert.equal(n(0.4999).value, 'no');
-  assert.equal(n(0.4999).probabilities.yes, 0.5); // gösterim yuvarlaması kararı değiştirmez
+  assert.equal(n(0.4999).probabilities.yes, 0.4999); // makine tüketimine tam hassasiyet
   assert.equal(n(0.5).value, 'yes');
   assert.equal(n(0.5001).value, 'yes');
-  assert.equal(n(0.5001).probabilities.yes, 0.5);
+  assert.equal(n(0.5001).probabilities.yes, 0.5001);
 });
 
 test('probeModels: {models:[{name}]} tel biçimi çözülür + timeout üst sınırı (küçük 2)', async () => {

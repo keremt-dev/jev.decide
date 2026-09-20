@@ -1,6 +1,6 @@
 # jev.decide — Mimari Tasarım
 
-Sürüm: 0.2.1 (inceleme düzeltmeleri) · Tarih: 2026-09-20
+Sürüm: 0.2.2 (doğrulama bulgularının kapatılması) · Tarih: 2026-09-20
 Girdiler: docs.typesafe.ai, resmi skill reposu, topluluk entegrasyonları (bkz. README §Kaynaklar)
 Değişiklik 0.2: çoklu-harness kararı (ZCode + Claude Code + Codex), anahtar `JEV_API`,
 §9 açık kararları kapatıldı, implementasyon haritası eklendi (§10).
@@ -11,6 +11,14 @@ hariç tutma, kaynak (mock/canlı+baseUrl) etiketli ve bağlam (cwd/git_dirty) d
 anahtarı, pipeline `off` modu + `meta.mode` + uyarıların meta'ya akışı, HTTP 200 yanıt
 doğrulaması (`JEV_E_BAD_RESPONSE`), retry toplam süre bütçesi, noul ham olasılıkla sınıflama,
 probeModels `name` alanı + timeout, yaml-mini tüketilmemiş içerik denetimi.
+
+Değişiklik 0.2.2: yeniden doğrulamadaki R01–R05 kapatıldı. Git diff statik yolu basit
+salt-okunur biçimlerle sınırlandı; komut metni model/cache için aynen korunuyor.
+Ham confidence/noul doğrulaması ve own-key choice üyeliği eklendi; probability hassasiyeti
+korunuyor. Cache `schema:2` ile önceki sonuçlardan ayrıldı. Model yoklamasının gövdesi
+timeout kapsamına alındı. MCP en fazla 4 eşzamanlı karar ve 64 bekleyen istekle çalışır;
+ping kuyruğu beklemez, iptal sinyali HTTP/mock/retry beklemesine taşınır ve iptal edilmiş
+sonuç cache'e yazılmaz. Ayrıntılar: `docs/tool-schema.md`.
 
 ---
 

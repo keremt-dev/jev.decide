@@ -133,6 +133,7 @@ Sürüm: 0.1 (tasarım) · Hedef API: `POST https://api.typesafe.ai/v1/systemone
 | `5xx` (diğer) / ağ / timeout | Retry yok (tasarım kararı: karar katmanı idempotent değilse gecikme katlanır; route isterse açıkça `retry: true`) | `JEV_E_UNAVAILABLE` |
 | `200` ama yanıt eksik/bozuk | Retry yok — istenen her soru için value/probabilities/confidence şema denetimi yapılır; cache'e **yazılmaz** | `JEV_E_BAD_RESPONSE` |
 | route `mode: off` | Çağrı yok, telemetri yok ("off (kayıt yok)") | `JEV_E_ROUTE_OFF` + passthrough önerisi |
+| İstek iptali | HTTP, mock gecikmesi ve retry beklemesi durdurulur; sonuç cache'e yazılmaz | Çekirdekte `JEV_E_CANCELLED`; MCP iptal edilen isteğe cevap göndermez |
 | Mock modu `JEV_MOCK=1` | HTTP yerine deterministik sahte yanıt + enjekte edilebilir gecikme | — |
 
 **Çağıran sözleşmesi:** bu hataların hiçbiri agent akışını durdurmaz; her çağıran route
@@ -142,12 +143,25 @@ alanı + `verdict: "passthrough"` önerisi taşınır.
 ## 4. Cache
 
 - Anahtar: `sha256(model ∥ canonical_json(state) ∥ canonical_json(questions) ∥ kaynak_etiketi)`.
-  Kaynak etiketi = `mock|canlı` + `baseUrl` — mock sonuçlar canlı modda (ve tersi) kullanılamaz.
+  Kaynak etiketi = `schema:2` + `mock|canlı` + `baseUrl` — eski doğrulama/normalizasyon kayıtları ve mock/canlı sonuçlar ayrılır.
 - TTL: route öntanımlısı (`thresholds.yaml`) → çağrı bazlı `ttl_seconds` ile geçersiz kılınır.
 - Hook route'u aynı içerik hash'ini kullanır; state komut+cwd+git_dirty içerdiğinden anahtar
   bağlam duyarlıdır (aynı komut farklı çalışma dizininde yeniden değerlendirilir).
+  Komut ham haliyle saklanmadan hash'e girer; tırnak içindeki boşluklar dahil anlamlı karakterler korunur.
 - Cache isabeti telemetriye `cached: true` olarak yazılır (latency ölçümünü bulanmasın).
 - Cache'e yalnız doğrulanmış yanıtlar yazılır (§3 `JEV_E_BAD_RESPONSE`).
+
+### MCP eşzamanlılık ve iptal
+
+Stdio sunucu en fazla 4 tool isteğini eşzamanlı çalıştırır; en fazla 64 ek isteği kuyrukta tutar.
+Kuyruk dolduğunda yeni tool isteğine JSON-RPC `-32000` döner. Ping/initialize/tools-list bu kuyruğu beklemez.
+`notifications/cancelled.params.requestId` ile yürüyen veya kuyruktaki tool isteği iptal edilir;
+iptal edilen isteğin cevabı bastırılır. Bilinmeyen veya tamamlanmış kimlikler yok sayılır.
+Bkz. [MCP cancellation sözleşmesi](https://modelcontextprotocol.io/specification/2025-06-18/basic/utilities/cancellation).
+
+Ham API confidence/noul alanları dönüştürülmeden önce doğrulanır. Choice üyeliği yalnız
+seçenek nesnesinin kendi anahtarlarını kabul eder. Noul olasılıkları makine tüketimi için
+yuvarlanmaz; görsel yuvarlama tüketiciye aittir. `/v1/models` süre sınırı gövde okumayı da kapsar.
 
 ## 5. Telemetri olay şeması (`.jev/telemetry.jsonl`, satır başına bir olay)
 
